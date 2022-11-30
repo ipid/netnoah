@@ -4,19 +4,17 @@ import (
 	"flag"
 	"fmt"
 	"github.com/dustin/go-humanize"
+	"github.com/libp2p/go-reuseport"
 	"net"
-	"net/netip"
 	"os"
 	"time"
 )
 
-func sendUdpPackets(conn *net.UDPConn, sendBytesNumChan chan uint64) {
+func sendUdpPackets(conn net.Conn, sendBytesNumChan chan uint64) {
 	var accumulated uint64 = 0
-	payload := make([]byte, 1403)
+	payload := make([]byte, 1453)
 
 	for {
-		payload[0] = payload[0] + 1
-
 		bytesWritten, err := conn.Write(payload)
 		if err != nil {
 			panic(err)
@@ -33,32 +31,18 @@ func sendUdpPackets(conn *net.UDPConn, sendBytesNumChan chan uint64) {
 
 func main() {
 	var threadNum int
-	var dstIpPort, bindSrcIp string
+	var dstIpPort, srcIpPort string
 
 	flag.IntVar(&threadNum, "thread", -1, "How many thread to use for sending UDP packets")
 	flag.StringVar(&dstIpPort, "dst", "", "Destination IP:Port")
-	flag.StringVar(&bindSrcIp, "src", "", "Bind source IP address")
+	flag.StringVar(&srcIpPort, "src", "", "Bind source IP:Port")
 
 	flag.Parse()
 
-	if threadNum <= 0 || dstIpPort == "" || bindSrcIp == "" {
+	if threadNum <= 0 || dstIpPort == "" || srcIpPort == "" {
 		_, _ = fmt.Fprintf(os.Stderr, "Incorrect parameters.\n")
 		flag.Usage()
 
-		os.Exit(1)
-		return
-	}
-
-	bindSrcAddr := net.ParseIP(bindSrcIp)
-	if bindSrcAddr == nil {
-		_, _ = fmt.Fprintf(os.Stderr, "Invalid bind udpSrc addr: %s\n", bindSrcIp)
-		os.Exit(1)
-		return
-	}
-
-	dstAddrPort, err := netip.ParseAddrPort(dstIpPort)
-	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "Invalid target ip: %s\nError while parsing destination IP addr:port: %s\n", dstIpPort, err.Error())
 		os.Exit(1)
 		return
 	}
@@ -71,20 +55,14 @@ func main() {
 	var accumulatedBytesNum uint64 = 0
 	var lastTimestampMs int64 = -1
 
-	fmt.Printf("Sending packets from %s to %s with %d threads...\n", bindSrcIp, dstIpPort, threadNum)
-
-	udpSrc := &net.UDPAddr{
-		IP:   bindSrcAddr,
-		Port: 0,
-	}
-	udpDst := net.UDPAddrFromAddrPort(dstAddrPort)
+	fmt.Printf("Sending packets from %s to %s with %d threads...\n", srcIpPort, dstIpPort, threadNum)
 
 	for i := 0; i < threadNum; i++ {
-		conn, err := net.DialUDP("udp", udpSrc, udpDst)
+		conn, err := reuseport.Dial("udp", srcIpPort, dstIpPort)
 		if err != nil {
 			_, _ = fmt.Fprintf(
 				os.Stderr,
-				"Error while creating connection #%d (total %d) from %s to %s: %s\n", i+1, threadNum, bindSrcIp, dstIpPort, err.Error(),
+				"Error while creating connection #%d (total %d) from %s to %s: %s\n", i+1, threadNum, srcIpPort, dstIpPort, err.Error(),
 			)
 			os.Exit(1)
 			return
